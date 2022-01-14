@@ -1,3 +1,4 @@
+import torch
 from pymongo import MongoClient
 import pickle
 from tqdm import tqdm
@@ -43,12 +44,25 @@ for position_id, node_type in leaf_nodes:
         print('error', position_id)
 
 print(lead_values)
-#dfg = pickle.loads(result['dfg'])
-#print(result['dfg'])
 
 
-def get_and_set_use_name(my, he):
-    my = my + 1
-    he = my + he
-    print(my+he)
+position_idx = torch.IntTensor([[2,3,4,5,6,7,8,0,0,0]])
+
+node_mask = position_idx.eq(0)
+token_mask = position_idx.ge(2)
+
+print(node_mask[:, :, None])
+
+print(token_mask[:, None, :])
+
+node_to_token_mask = node_mask[:, :, None] & token_mask[:, None, :]
+
+print((node_to_token_mask.sum(-1) + 1e-10)[:, :, None])
+
+nodes_to_token_mask = node_to_token_mask / (node_to_token_mask.sum(-1) + 1e-10)[:, :, None]
+
+print(nodes_to_token_mask)
+
+a = torch.randn((2,4)).cuda()
+print(torch.sum(a).cpu().numpy())
 

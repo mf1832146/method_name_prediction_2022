@@ -1,12 +1,143 @@
-import torch
-import torch.nn as nn
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
+import os
 import numpy as np
+import torch.nn as nn
+import torch
+from tokenizers import Tokenizer
+import logging
+
+from transformers import DebertaConfig, DebertaModel, PreTrainedTokenizerFast
+from transformers.file_utils import add_code_sample_docstrings, add_start_docstrings_to_model_forward
+from transformers.modeling_outputs import SequenceClassifierOutput, BaseModelOutput
+from transformers.models.deberta.modeling_deberta import (DEBERTA_INPUTS_DOCSTRING, _CHECKPOINT_FOR_DOC,
+                                                          _CONFIG_FOR_DOC, _TOKENIZER_FOR_DOC)
+
+logger = logging.getLogger(__name__)
 
 
-# https://github.com/microsoft/CodeBERT/blob/master/CodeBERT/code2nl/model.py
+def get_model_size(model):
+    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+    model_size = sum([np.prod(p.size()) for p in model_parameters])
+    return "{}M".format(round(model_size / 1e+6))
+
+
+def build_or_load_gen_model(args):
+    config_class, model_class = DebertaConfig, MyDebertaModel,
+    config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path)
+    # tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name)
+
+    tokenizer = Tokenizer.from_file('../tokenizer/roberta_tokenizer.json')
+    tokenizer = PreTrainedTokenizerFast(tokenizer_object=tokenizer,
+                                        unk_token='<unk>',
+                                        bos_token="<s>",
+                                        eos_token="</s>",
+                                        cls_token='<s>',
+                                        sep_token='</s>',
+                                        pad_token='<pad>',
+                                        mask_token='<mask>')
+
+    encoder = model_class(config)
+    decoder_layer = nn.TransformerDecoderLayer(d_model=config.hidden_size, nhead=config.num_attention_heads)
+    decoder = nn.TransformerDecoder(decoder_layer, num_layers=6)
+    model = Seq2Seq(encoder=encoder, decoder=decoder, config=config,
+                    beam_size=args.beam_size, max_length=args.max_target_length,
+                    sos_id=tokenizer.cls_token_id, eos_id=tokenizer.sep_token_id)
+
+    logger.info("Finish loading model [%s] from %s", get_model_size(model), args.model_name_or_path)
+
+    if args.load_model_path is not None:
+        logger.info("Reload model from {}".format(args.load_model_path))
+        model.load_state_dict(torch.load(args.load_model_path))
+
+    return config, model, tokenizer
+
+
+class MyDebertaModel(DebertaModel):
+    def __init__(self, config):
+        super().__init__(config)
+
+    @add_start_docstrings_to_model_forward(DEBERTA_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
+    @add_code_sample_docstrings(
+        processor_class=_TOKENIZER_FOR_DOC,
+        checkpoint=_CHECKPOINT_FOR_DOC,
+        output_type=SequenceClassifierOutput,
+        config_class=_CONFIG_FOR_DOC,
+    )
+    def forward(self,
+                input_ids=None,
+                attention_mask=None,
+                token_type_ids=None,
+                position_ids=None,
+                rel_pos=None,
+                inputs_embeds=None,
+                output_attentions=None,
+                output_hidden_states=None,
+                return_dict=None,):
+        # output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        # output_hidden_states = (
+        #     output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        # )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        if input_ids is not None and inputs_embeds is not None:
+            raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
+        elif input_ids is not None:
+            input_shape = input_ids.size()
+        elif inputs_embeds is not None:
+            input_shape = inputs_embeds.size()[:-1]
+        else:
+            raise ValueError("You have to specify either input_ids or inputs_embeds")
+
+        device = input_ids.device if input_ids is not None else inputs_embeds.device
+
+        if attention_mask is None:
+            attention_mask = torch.ones(input_shape, device=device)
+        if token_type_ids is None:
+            token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=device)
+
+        embedding_output = self.embeddings(
+            input_ids=input_ids,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            mask=attention_mask,
+            inputs_embeds=inputs_embeds,
+        )
+
+        query_states = embedding_output
+        attention_mask = self.encoder.get_attention_mask(attention_mask)
+        rel_embeddings = self.encoder.get_rel_embedding()
+        rel_pos = rel_pos - self.encoder.max_relative_positions
+
+        encoder_outputs = []
+
+        for layer in self.encoder.layer:
+            query_states = layer(
+                query_states,
+                attention_mask,
+                output_attentions=False,
+                query_states=query_states,
+                relative_pos=rel_pos,
+                rel_embeddings=rel_embeddings,
+            )
+            encoder_outputs.append(query_states)
+
+        sequence_output = encoder_outputs[-1]
+
+        if not return_dict:
+            return sequence_output
+
+        return BaseModelOutput(
+            last_hidden_state=sequence_output,
+            hidden_states=None,
+            attentions=None
+        )
+
+
 class Seq2Seq(nn.Module):
     """
         Build Seqence-to-Sequence.
+
         Parameters:
         * `encoder`- encoder of seq2seq model. e.g. roberta
         * `decoder`- decoder of seq2seq model. e.g. transformer
@@ -48,15 +179,30 @@ class Seq2Seq(nn.Module):
         self._tie_or_clone_weights(self.lm_head,
                                    self.encoder.embeddings.word_embeddings)
 
-    def forward(self, source_ids=None, source_mask=None, target_ids=None, target_mask=None, args=None):
-        outputs = self.encoder(source_ids, attention_mask=source_mask)
+    def forward(self, source_ids, source_mask, position_idx, attn_mask, rel_pos, target_ids=None, target_mask=None):
+        # embedding
+        nodes_mask = position_idx.eq(-1)
+        token_mask = position_idx.eq(-2)
+        inputs_embeddings = self.encoder.embeddings.word_embeddings(source_ids)
+        nodes_to_token_mask = nodes_mask[:, :, None] & token_mask[:, None, :] & attn_mask
+        nodes_to_token_mask = nodes_to_token_mask / (nodes_to_token_mask.sum(-1) + 1e-10)[:, :, None]
+        avg_embeddings = torch.einsum("abc,acd->abd", nodes_to_token_mask, inputs_embeddings)
+        inputs_embeddings = inputs_embeddings * (~nodes_mask)[:, :, None] + avg_embeddings * nodes_mask[:, :, None]
+
+        position_idx = torch.clamp(position_idx, 0)
+
+        outputs = self.encoder(inputs_embeds=inputs_embeddings,
+                               attention_mask=attn_mask,
+                               position_ids=position_idx,
+                               rel_pos=rel_pos)
+
         encoder_output = outputs[0].permute([1, 0, 2]).contiguous()
+        # source_mask=token_mask.float()
         if target_ids is not None:
             attn_mask = -1e4 * (1 - self.bias[:target_ids.shape[1], :target_ids.shape[1]])
             tgt_embeddings = self.encoder.embeddings(target_ids).permute([1, 0, 2]).contiguous()
             out = self.decoder(tgt_embeddings, encoder_output, tgt_mask=attn_mask,
-                               memory_key_padding_mask=~source_mask)
-            # memory_key_padding_mask=(1 - source_mask).bool())
+                               memory_key_padding_mask=(1 - source_mask).bool())
             hidden_states = torch.tanh(self.dense(out)).permute([1, 0, 2]).contiguous()
             lm_logits = self.lm_head(hidden_states)
             # Shift so that tokens < n predict n
@@ -87,8 +233,7 @@ class Seq2Seq(nn.Module):
                     attn_mask = -1e4 * (1 - self.bias[:input_ids.shape[1], :input_ids.shape[1]])
                     tgt_embeddings = self.encoder.embeddings(input_ids).permute([1, 0, 2]).contiguous()
                     out = self.decoder(tgt_embeddings, context, tgt_mask=attn_mask,
-                                       memory_key_padding_mask=~context_mask)
-                    # memory_key_padding_mask=(1 - context_mask).bool())
+                                       memory_key_padding_mask=(1 - context_mask).bool())
                     out = torch.tanh(self.dense(out))
                     hidden_states = out.permute([1, 0, 2]).contiguous()[:, -1, :]
                     out = self.lsm(self.lm_head(hidden_states)).data

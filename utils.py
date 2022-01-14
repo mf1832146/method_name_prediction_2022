@@ -1,7 +1,42 @@
-import torch
-import numpy as np
 from torch.utils.data import Dataset
+import numpy as np
+import logging
+import os
+import torch
+from tqdm import tqdm
+import time
+import sys
 from _utils import ast2seq, get_ud2pos, build_relative_position, tokenize_with_camel_case
+from mongodb_utils import connect_db, read_fuc_name_pre_examples_from_db
+
+sys.setrecursionlimit(1000000)
+
+logger = logging.getLogger(__name__)
+
+
+def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag, only_src=False, is_sample=False):
+    # cache the data into args.cache_path except it is sampled
+    # only_src: control whether to return only source ids for bleu evaluating (dev/test)
+    # return: examples (Example object), data (TensorDataset)
+
+    data_tag = '_all' if args.data_num == -1 else '_%d' % args.data_num
+    cache_fn = '{}/{}.pt'.format(args.cache_path, split_tag + ('_src' if only_src else '') + data_tag)
+
+    if os.path.exists(cache_fn) and not is_sample:
+        logger.info("Load cache data from %s", cache_fn)
+        data = torch.load(cache_fn)
+    else:
+        logger.info("Create cache data into %s", cache_fn)
+
+        codes = connect_db().codes
+        # collection, split_tag, lang, data_num
+        examples = read_fuc_name_pre_examples_from_db(codes, split_tag, args.sub_task, args.data_num)
+        tuple_examples = [(example, idx, tokenizer, args, split_tag) for idx, example in enumerate(examples)]
+        features = pool.map(convert_example_to_func_naming_feature, tqdm(tuple_examples, total=len(tuple_examples)))
+        data = FuncNamingDataset(features, args, tokenizer)
+        if args.local_rank in [-1, 0] and not is_sample:
+            torch.save(data, cache_fn)
+    return examples, data
 
 
 class Example(object):
@@ -15,14 +50,16 @@ class Example(object):
 
 
 class FuncNamingFeature(object):
-    def __init__(self, example_id, source_ids, position_idx, rel_pos, source_mask, target_ids, target_mask):
+    def __init__(self, example_id, source_ids, position_idx, rel_pos, source_mask, target_ids, target_mask, gold_ids):
         self.example_id = example_id
         self.source_ids = source_ids
         self.position_idx = position_idx
         self.rel_pos = rel_pos
         self.source_mask = source_mask
         self.target_ids = target_ids
+        self.gold_ids = gold_ids
         self.target_mask = target_mask
+        self.gold_ids = gold_ids
 
 
 class FuncNamingDataset(Dataset):
@@ -35,9 +72,18 @@ class FuncNamingDataset(Dataset):
         return len(self.examples)
 
     def __getitem__(self, item):
-
-        # calculate graph-guided masked function
-        attn_mask = np.zeros((self.args.max_source_length, self.args.max_source_length), dtype=np.bool)
+        rel_pos = np.zeros((self.args.max_source_length, self.args.max_source_length), dtype=np.long)
+        for k, v in self.examples[item].rel_pos.items():
+            rel_pos[k[0]][k[1]] = v
+        attn_mask = rel_pos > 0
+        return (torch.tensor(self.examples[item].source_ids),
+                torch.tensor(self.examples[item].source_mask),
+                torch.tensor(self.examples[item].position_idx),
+                torch.tensor(attn_mask),
+                torch.tensor(rel_pos),
+                torch.tensor(self.examples[item].target_ids),
+                torch.tensor(self.examples[item].target_mask),
+                torch.tensor(self.examples[item].gold_ids))
 
 
 def convert_example_to_func_naming_feature(item):
@@ -133,8 +179,6 @@ def convert_example_to_func_naming_feature(item):
     if args.use_dfg:
         dfg = dfg[:args.max_dfg_len]
         source_ids += [tokenizer.unk_token_id for x in dfg]
-        # padding_length = max_source_len + 2 - len(source_ids)
-        # source_ids += [tokenizer.pad_token_id] * padding_length
         length = len([tokenizer.cls_token]) + len(non_leaf_tokens) if args.use_ast else len([tokenizer.cls_token])
 
         # reindex 记录code token idx 到 dfg index
@@ -162,8 +206,6 @@ def convert_example_to_func_naming_feature(item):
                 rel_pos[(i + source_token_len, j + source_token_len)] = 1
 
         source_tokens += [x[0] for x in dfg]
-        print(source_tokens)
-        print(source_tokens[16])
 
     # special tokens attend to all tokens
     for idx, i in enumerate(source_ids):
@@ -173,7 +215,7 @@ def convert_example_to_func_naming_feature(item):
 
     max_source_len = 0
 
-    position_idx = [tokenizer.pad_token_id]  # start pos
+    position_idx = [-3]  # start pos
 
     if args.use_ast:
         max_source_len += args.max_ast_size
@@ -185,11 +227,14 @@ def convert_example_to_func_naming_feature(item):
     padding_length = max_source_len - len(source_ids)
 
     if args.use_ast:
-        position_idx += [tokenizer.pad_token_id] * len(non_leaf_tokens)
+        position_idx += [-3] * len(non_leaf_tokens)
     if args.use_code:
         position_idx += [i + tokenizer.pad_token_id + 1 for i in range(len(split_leaf_tokens))]
     else:
-        position_idx += [tokenizer.pad_token_id] * len(split_leaf_tokens)
+        position_idx += [-2] * len(split_leaf_tokens)
+    position_idx += [-3]
+    if args.use_dfg:
+        position_idx += [-1] * len(dfg)
 
     position_idx += [tokenizer.pad_token_id] * (max_source_len-len(position_idx))
     source_ids += [tokenizer.pad_token_id] * padding_length
@@ -198,18 +243,18 @@ def convert_example_to_func_naming_feature(item):
 
     # # func name 分词
     func_token = tokenize_with_camel_case(func_name)
-
-    if stage == 'test':
-        target_tokens = tokenizer.tokenize('None')
-    else:
-        target_tokens = tokenizer.tokenize(' '.join(func_token))[:7-2]
-
+    target_tokens = tokenizer.tokenize(' '.join(func_token))[:args.max_target_len-2]
     target_tokens = [tokenizer.cls_token] + target_tokens + [tokenizer.sep_token]
     target_ids = tokenizer.convert_tokens_to_ids(target_tokens)
+
     target_mask = [1] * len(target_ids)
     padding_length = 7 - len(target_ids)
     target_ids += [tokenizer.pad_token_id] * padding_length
     target_mask += [0] * padding_length
+
+    gold_ids = target_ids
+    if stage == 'test':
+        target_ids = None
 
     return FuncNamingFeature(example_index,
                              source_ids,
@@ -217,7 +262,19 @@ def convert_example_to_func_naming_feature(item):
                              rel_pos,
                              source_mask,
                              target_ids,
-                             target_mask)
+                             target_mask,
+                             gold_ids)
+
+
+def get_elapse_time(t0):
+    elapse_time = time.time() - t0
+    if elapse_time > 3600:
+        hour = int(elapse_time // 3600)
+        minute = int((elapse_time % 3600) // 60)
+        return "{}h{}m".format(hour, minute)
+    else:
+        minute = int((elapse_time % 3600) // 60)
+        return "{}m".format(minute)
 
 
 
