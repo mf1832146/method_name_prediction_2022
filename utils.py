@@ -6,23 +6,54 @@ import torch
 from tqdm import tqdm
 import time
 import sys
+import pickle
+from pymongo import MongoClient
 from _utils import ast2seq, get_ud2pos, build_relative_position, tokenize_with_camel_case
-from mongodb_utils import connect_db, read_fuc_name_pre_examples_from_db
 
 sys.setrecursionlimit(1000000)
 
 logger = logging.getLogger(__name__)
 
 
-def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag, only_src=False, is_sample=False):
+# idx, ast, dfg, target, index2code, lang
+def read_fuc_name_pre_examples_from_db(collection, split_tag, lang, data_num):
+    """Read examples from mongodb with conditions."""
+    print('load data from db.')
+    return_items = {'code_index': 1, 'ast': 1, 'func_name': 1, 'dfg': 1, 'index_to_code': 1}
+    conditions = {'partition': split_tag, 'lang': lang, 'build_ast': 1}
+
+    examples = []
+    results = collection.find(conditions, return_items)
+    for result in tqdm(results[:1000], total=results.count()):
+        idx = result['code_index']
+        ast = pickle.loads(result['ast'])
+        dfg = pickle.loads(result['dfg'])
+        index2code = pickle.loads(result['index_to_code'])
+        func_name = result['func_name']
+        examples.append(
+            Example(
+                idx=idx,
+                ast=ast,
+                dfg=dfg,
+                index2code=index2code,
+                target=func_name,
+                lang=lang
+            )
+        )
+        if idx + 1 == data_num:
+            break
+    return examples
+
+
+def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
     # cache the data into args.cache_path except it is sampled
     # only_src: control whether to return only source ids for bleu evaluating (dev/test)
     # return: examples (Example object), data (TensorDataset)
 
     data_tag = '_all' if args.data_num == -1 else '_%d' % args.data_num
-    cache_fn = '{}/{}.pt'.format(args.cache_path, split_tag + ('_src' if only_src else '') + data_tag)
+    cache_fn = '{}/{}.pt'.format(args.cache_path, split_tag + data_tag)
 
-    if os.path.exists(cache_fn) and not is_sample:
+    if os.path.exists(cache_fn):
         logger.info("Load cache data from %s", cache_fn)
         data = torch.load(cache_fn)
     else:
@@ -34,9 +65,9 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag, only_src=F
         tuple_examples = [(example, idx, tokenizer, args, split_tag) for idx, example in enumerate(examples)]
         features = pool.map(convert_example_to_func_naming_feature, tqdm(tuple_examples, total=len(tuple_examples)))
         data = FuncNamingDataset(features, args, tokenizer)
-        if args.local_rank in [-1, 0] and not is_sample:
+        if args.local_rank in [-1, 0]:
             torch.save(data, cache_fn)
-    return examples, data
+    return data
 
 
 class Example(object):
@@ -72,9 +103,11 @@ class FuncNamingDataset(Dataset):
         return len(self.examples)
 
     def __getitem__(self, item):
-        rel_pos = np.zeros((self.args.max_source_length, self.args.max_source_length), dtype=np.long)
+        max_source_len = self.args.max_source_len
+        rel_pos = np.zeros((max_source_len, max_source_len), dtype=np.long)
         for k, v in self.examples[item].rel_pos.items():
-            rel_pos[k[0]][k[1]] = v
+            if k[0] < max_source_len and k[1] < max_source_len:
+                rel_pos[k[0]][k[1]] = v
         attn_mask = rel_pos > 0
         return (torch.tensor(self.examples[item].source_ids),
                 torch.tensor(self.examples[item].source_mask),
@@ -115,7 +148,7 @@ def convert_example_to_func_naming_feature(item):
 
     """truncating"""
     if args.use_ast:
-        max_source_len = args.max_ast_size - 2
+        max_source_len = args.max_ast_len - 2
         if len(split_leaf_tokens) > max_source_len:
             split_leaf_tokens = split_leaf_tokens[:max_source_len]
             origin_non_leaf_len = len(non_leaf_tokens)
@@ -177,6 +210,7 @@ def convert_example_to_func_naming_feature(item):
                     rel_pos[(i + length, j + length)] = rel_leaf_pos[0][i][j]
 
     if args.use_dfg:
+        dfg = [d for d in dfg if d[1] in ori2cur_pos]
         dfg = dfg[:args.max_dfg_len]
         source_ids += [tokenizer.unk_token_id for x in dfg]
         length = len([tokenizer.cls_token]) + len(non_leaf_tokens) if args.use_ast else len([tokenizer.cls_token])
@@ -218,7 +252,7 @@ def convert_example_to_func_naming_feature(item):
     position_idx = [-3]  # start pos
 
     if args.use_ast:
-        max_source_len += args.max_ast_size
+        max_source_len += args.max_ast_len
     else:
         max_source_len += args.max_code_len
     if args.use_dfg:
@@ -243,7 +277,7 @@ def convert_example_to_func_naming_feature(item):
 
     # # func name 分词
     func_token = tokenize_with_camel_case(func_name)
-    target_tokens = tokenizer.tokenize(' '.join(func_token))[:args.max_target_len-2]
+    target_tokens = tokenizer.tokenize(' '.join(func_token))[:args.max_target_length-2]
     target_tokens = [tokenizer.cls_token] + target_tokens + [tokenizer.sep_token]
     target_ids = tokenizer.convert_tokens_to_ids(target_tokens)
 
@@ -275,6 +309,13 @@ def get_elapse_time(t0):
     else:
         minute = int((elapse_time % 3600) // 60)
         return "{}m".format(minute)
+
+
+def connect_db():
+    client = MongoClient('172.29.7.221', 27017, username='admin', password='123456')
+    db = client.code_search_net
+    return db
+
 
 
 

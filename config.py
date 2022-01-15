@@ -19,20 +19,20 @@ def add_args(parser):
     parser.add_argument("--start_epoch", default=0, type=int)
     parser.add_argument("--num_train_epochs", default=100, type=int)
     parser.add_argument("--patience", default=20, type=int)
-    parser.add_argument("--tokenizer_path", type=str, required=True)
+    # parser.add_argument("--tokenizer_path", type=str, required=True)
     parser.add_argument("--cache_path", type=str, required=True)
     parser.add_argument("--summary_dir", type=str, required=True)
-    parser.add_argument("--data_dir", type=str, required=True)
+    # parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--res_dir", type=str, required=True)
     parser.add_argument("--res_fn", type=str, default='')
     parser.add_argument("--add_task_prefix", action='store_true', help="Whether to add task prefix for t5 and codet5")
     parser.add_argument("--save_last_checkpoints", action='store_true')
     parser.add_argument("--always_save_model", action='store_true')
     # parser.add_argument("--do_eval_acc", action='store_true', help="Whether to evaluate bleu on dev set.")
-    parser.add_argument("--do_eval_mrr", action='store_true', help="Whether to evaluate mrr on dev set.")
+    parser.add_argument("--do_eval_acc", action='store_true', help="Whether to evaluate mrr on dev set.")
     ## Required parameters
-    parser.add_argument("--model_name_or_path", default="roberta-base", type=str,
-                        help="Path to pre-trained model: e.g. roberta-base")
+    # parser.add_argument("--model_name_or_path", default="roberta-base", type=str,
+    #                     help="Path to pre-trained model: e.g. roberta-base")
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")
     parser.add_argument("--load_model_path", default=None, type=str,
@@ -53,17 +53,17 @@ def add_args(parser):
     # """args.max_target_len = 7"""
     parser.add_argument("--config_name", default="", type=str,
                         help="Pretrained config name or path if not the same as model_name")
-    parser.add_argument("--tokenizer_name", default="deberta", type=str,
-                        help="Pretrained tokenizer name or path if not the same as model_name")
+    #parser.add_argument("--tokenizer_name", default="deberta", type=str,
+    #                    help="Pretrained tokenizer name or path if not the same as model_name")
 
     parser.add_argument("--max_dfg_len", default=64, type=int)
     parser.add_argument("--max_code_len", default=256, type=int)
     parser.add_argument("--max_ast_len", default=512, type=int)
-    parser.add_argument("--max_rel_pos", action='store_true')
-    parser.add_argument("--use_ast", default=64, type=int)
-    parser.add_argument("--max_target_len", default=7, type=int)
+    parser.add_argument("--use_ast", action='store_true')
     parser.add_argument("--use_code", action='store_true')
     parser.add_argument("--use_dfg", action='store_true')
+    parser.add_argument("--max_rel_pos", default=64, type=int)
+    parser.add_argument("--max_target_length", default=7, type=int)
 
     parser.add_argument("--do_train", action='store_true',
                         help="Whether to run eval on the train set.")

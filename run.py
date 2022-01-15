@@ -25,13 +25,12 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
 logger = logging.getLogger(__name__)
 
 
-def eval_ppl_epoch(args, eval_data, eval_examples, model, tokenizer):
+def eval_ppl_epoch(args, eval_data, model):
     eval_sample = SequentialSampler(eval_data)
     eval_dataloader = DataLoader(eval_data, sampler=eval_sample, batch_size=args.eval_batch_size,
                                  num_workers=4, pin_memory=True)
     # Start evaluating model
     logger.info(" " + "**** Run ppl evaluation ****")
-    logger.info("  Num examples = %d", len(eval_examples))
     logger.info("  Batch size = %d", args.eval_batch_size)
 
     model.eval()
@@ -42,6 +41,7 @@ def eval_ppl_epoch(args, eval_data, eval_examples, model, tokenizer):
         with torch.no_grad():
             loss, _, _ = model(source_ids=source_ids, source_mask=source_mask,
                                position_idx=position_idx, attn_mask=attn_mask,
+                               rel_pos=rel_pos,
                                target_ids=target_ids, target_mask=target_mask)
 
             if args.n_gpu > 1:
@@ -55,9 +55,8 @@ def eval_ppl_epoch(args, eval_data, eval_examples, model, tokenizer):
     return eval_ppl
 
 
-def eval_acc_epoch(args, eval_data, eval_examples, model, split_tag):
+def eval_acc_epoch(args, eval_data, model, split_tag):
     logger.info("  ***** Running bleu evaluation on {} data*****".format(split_tag))
-    logger.info("  Num examples = %d", len(eval_examples))
     logger.info("  Batch size = %d", args.eval_batch_size)
     eval_sampler = SequentialSampler(eval_data)
 
@@ -78,6 +77,7 @@ def eval_acc_epoch(args, eval_data, eval_examples, model, split_tag):
         with torch.no_grad():
             preds = model(source_ids=source_ids, source_mask=source_mask,
                           position_idx=position_idx, attn_mask=attn_mask,
+                          rel_pos=rel_pos,
                           target_ids=target_ids, target_mask=target_mask)
             top_preds = [pred[0] for pred in preds]  # [batch_size, 7]
 
@@ -114,7 +114,7 @@ def main():
             tb_writer = SummaryWriter(summary_fn)
 
         # Prepare training data loader
-        train_examples, train_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'train')
+        train_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'train')
         train_sampler = RandomSampler(train_data) if args.local_rank == -1 else DistributedSampler(train_data)
         train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size,
                                       num_workers=4, pin_memory=True)
@@ -160,6 +160,7 @@ def main():
 
                 loss, _, _ = model(source_ids=source_ids, source_mask=source_mask,
                                    position_idx=position_idx, attn_mask=attn_mask,
+                                   rel_pos=rel_pos,
                                    target_ids=target_ids, target_mask=target_mask)
 
                 if args.n_gpu > 1:
@@ -184,12 +185,12 @@ def main():
             if args.do_eval:
                 # Eval model with dev dataset
                 if 'dev_loss' in dev_dataset:
-                    eval_examples, eval_data = dev_dataset['dev_loss']
+                    eval_data = dev_dataset['dev_loss']
                 else:
-                    eval_examples, eval_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'valid')
-                    dev_dataset['dev_loss'] = eval_examples, eval_data
+                    eval_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'valid')
+                    dev_dataset['dev_loss'] = eval_data
 
-                eval_ppl = eval_ppl_epoch(args, eval_data, eval_examples, model, tokenizer)
+                eval_ppl = eval_ppl_epoch(args, eval_data, model)
                 result = {'epoch': cur_epoch, 'global_step': global_step, 'eval_ppl': eval_ppl}
                 for key in sorted(result.keys()):
                     logger.info("  %s = %s", key, str(result[key]))
@@ -235,10 +236,9 @@ def main():
                 logger.info("***** CUDA.empty_cache() *****")
                 torch.cuda.empty_cache()
                 if args.do_eval_bleu:
-                    eval_examples, eval_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'valid',
-                                                                               only_src=True, is_sample=True)
+                    eval_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'valid')
 
-                    result = eval_acc_epoch(args, eval_data, eval_examples, model, 'dev')
+                    result = eval_acc_epoch(args, eval_data, model, 'dev')
                     dev_acc = result
                     if args.data_num == -1:
                         tb_writer.add_scalar('dev_acc', dev_acc, cur_epoch)
@@ -293,9 +293,8 @@ def main():
             new_state_dict[name] = v
         model.load_state_dict(new_state_dict)
         # model.load_state_dict(torch.load(file),False)
-        eval_examples, eval_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'test',
-                                                                   only_src=True, is_sample=False)
-        result = eval_acc_epoch(args, eval_data, eval_examples, model, 'test')
+        eval_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'test')
+        result = eval_acc_epoch(args, eval_data, model, 'test')
         test_acc = result
         result_str = "[ppl] acc: %.2f\n" % test_acc
         logger.info(result_str)

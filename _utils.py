@@ -1,13 +1,9 @@
 import math
-import pickle
 import re
 import torch
 
 
 __all__ = ['tokenize_with_camel_case', 'ast2seq', 'clip_ud_mask', 'get_ud2pos', 'build_relative_position']
-
-import numpy as np
-from pymongo import MongoClient
 
 
 def tokenize_with_camel_case(token):
@@ -55,7 +51,7 @@ def get_ud2pos(max_rel_pos):
 
 def ast2seq(root_node, index2code, ud2pos, args):
     clean_ast(root_node)
-    sub_tree(root_node, args.max_ast_size)
+    sub_tree(root_node, args.max_ast_len)
     remove_node(root_node, index2code)
     non_leaves, leaves = [], []
     id2pos = {}
@@ -107,7 +103,6 @@ def remove_node(root_node, index2code):
 def clean_ast(root_node):
     if root_node['type'] == 'string':
         root_node['children'] = []
-        print(root_node['position_id'])
     if root_node['type'] == 'comment':
         root_node['is_delete'] = True
         if len(root_node['children']) > 0:

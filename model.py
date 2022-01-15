@@ -22,12 +22,29 @@ def get_model_size(model):
     return "{}M".format(round(model_size / 1e+6))
 
 
-def build_or_load_gen_model(args):
-    config_class, model_class = DebertaConfig, MyDebertaModel,
-    config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path)
-    # tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name)
+def build_config(args, tokenizer):
+    if args.use_ast and args.use_code:
+        max_rel_pos = args.max_rel_pos + 2
+    else:
+        max_rel_pos = int(args.max_rel_pos / 2) + 1
+    deberta_config = DebertaConfig(vocab_size=tokenizer.vocab_size,
+                                   hidden_size=512,
+                                   num_hidden_layers=6,
+                                   num_attention_heads=8,
+                                   intermediate_size=2048,
+                                   relative_attention=True,
+                                   max_position_embeddings=512,
+                                   max_relative_positions=max_rel_pos,
+                                   bos_token_id=tokenizer.cls_token_id,
+                                   eos_token_id=tokenizer.eos_token_id,
+                                   pad_token_id=tokenizer.pad_token_id,
+                                   pos_att_type=["p2c", "c2p", "p2p"]
+                                   )
+    return deberta_config
 
-    tokenizer = Tokenizer.from_file('../tokenizer/roberta_tokenizer.json')
+
+def build_or_load_gen_model(args):
+    tokenizer = Tokenizer.from_file('./tokenizer/deberta_tokenizer.json')
     tokenizer = PreTrainedTokenizerFast(tokenizer_object=tokenizer,
                                         unk_token='<unk>',
                                         bos_token="<s>",
@@ -37,18 +54,20 @@ def build_or_load_gen_model(args):
                                         pad_token='<pad>',
                                         mask_token='<mask>')
 
-    encoder = model_class(config)
+    config = build_config(args, tokenizer)
+
+    encoder = MyDebertaModel(config)
     decoder_layer = nn.TransformerDecoderLayer(d_model=config.hidden_size, nhead=config.num_attention_heads)
     decoder = nn.TransformerDecoder(decoder_layer, num_layers=6)
     model = Seq2Seq(encoder=encoder, decoder=decoder, config=config,
                     beam_size=args.beam_size, max_length=args.max_target_length,
                     sos_id=tokenizer.cls_token_id, eos_id=tokenizer.sep_token_id)
 
-    logger.info("Finish loading model [%s] from %s", get_model_size(model), args.model_name_or_path)
+    logger.info("Finish loading model [%s]", get_model_size(model))
 
-    if args.load_model_path is not None:
-        logger.info("Reload model from {}".format(args.load_model_path))
-        model.load_state_dict(torch.load(args.load_model_path))
+    # if args.load_model_path is not None:
+    #     logger.info("Reload model from {}".format(args.load_model_path))
+    #     model.load_state_dict(torch.load(args.load_model_path))
 
     return config, model, tokenizer
 
