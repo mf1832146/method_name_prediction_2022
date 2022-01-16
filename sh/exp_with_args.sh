@@ -1,4 +1,4 @@
-WORKDIR="/tmp/pycharm_project_2022"
+WORKDIR="/home/group/tz/method_name_prediction_2022/sh"
 export PYTHONPATH=$WORKDIR
 
 TASK=${1}
@@ -95,7 +95,7 @@ MODEL_TYPE='deberta'
 RUN_FN=${WORKDIR}/run.py
 
 CUDA_VISIBLE_DEVICES=${GPU} \
-  /home/tangze/anaconda3/envs/codet5/bin/python3.8 ${RUN_FN}  \
+  python ${RUN_FN}  \
   --do_train --do_eval --do_eval_acc --do_test  --save_last_checkpoints --always_save_model \
   --task ${TASK} --sub_task ${SUB_TASK} --model_type ${MODEL_TYPE} --data_num ${DATA_NUM}  \
   --num_train_epochs ${EPOCH} --warmup_steps ${WARMUP} --learning_rate ${LR}e-5 --patience ${PATIENCE} \
