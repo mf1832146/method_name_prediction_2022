@@ -25,10 +25,7 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
 logger = logging.getLogger(__name__)
 
 
-def eval_ppl_epoch(args, eval_data, model):
-    eval_sample = SequentialSampler(eval_data)
-    eval_dataloader = DataLoader(eval_data, sampler=eval_sample, batch_size=args.eval_batch_size,
-                                 num_workers=4, pin_memory=True)
+def eval_ppl_epoch(args, eval_dataloader, model):
     # Start evaluating model
     logger.info(" " + "**** Run ppl evaluation ****")
     logger.info("  Batch size = %d", args.eval_batch_size)
@@ -55,17 +52,9 @@ def eval_ppl_epoch(args, eval_data, model):
     return eval_ppl
 
 
-def eval_acc_epoch(args, eval_data, model, split_tag):
+def eval_acc_epoch(args, eval_dataloader, model, split_tag):
     logger.info("  ***** Running bleu evaluation on {} data*****".format(split_tag))
     logger.info("  Batch size = %d", args.eval_batch_size)
-    eval_sampler = SequentialSampler(eval_data)
-
-    if args.data_num == -1:
-        eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size,
-                                     num_workers=4, pin_memory=True)
-    else:
-        eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
-
     model.eval()
     total_acc_num = 0
     total_num = 0
@@ -77,9 +66,9 @@ def eval_acc_epoch(args, eval_data, model, split_tag):
         with torch.no_grad():
             preds = model(source_ids=source_ids, source_mask=source_mask,
                           position_idx=position_idx, attn_mask=attn_mask,
-                          rel_pos=rel_pos,
-                          target_ids=target_ids, target_mask=target_mask)
-            top_preds = [pred[0] for pred in preds]  # [batch_size, 7]
+                          rel_pos=rel_pos)
+            # top_preds = [pred[0] for pred in preds]  # [batch_size, 7]
+            top_preds = preds[:, 0, :]
 
             top_preds = top_preds * target_mask  # 对应位置进行mask
             total_num += torch.sum(target_mask[:, 1:]).cpu().numpy()
@@ -149,7 +138,7 @@ def main():
         # global_step, best_bleu_em, best_ppl = 0, -1, 1e6
         # not_loss_dec_cnt, not_bleu_em_inc_cnt = 0, 0 if args.do_eval_bleu else 1e6
 
-        for cur_epoch in range(args.start_epoch, int(args.num_train_epochs)):
+        for cur_epoch in range(args.start_epoch, args.num_train_epochs):
             bar = tqdm(train_dataloader, total=len(train_dataloader), desc='Training')
             nb_tr_examples, nb_tr_steps, tr_loss = 0, 0, 0
             model.train()
@@ -182,12 +171,15 @@ def main():
                     train_loss = round(tr_loss * args.gradient_accumulation_steps / (nb_tr_steps + 1), 4)
                     bar.set_description("[{}] Train loss {}".format(cur_epoch, round(train_loss, 3)))
 
-            if args.do_eval:
+            if args.do_eval and cur_epoch % 5 == 0:
                 # Eval model with dev dataset
                 if 'dev_loss' in dev_dataset:
                     eval_data = dev_dataset['dev_loss']
                 else:
                     eval_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'valid')
+                    eval_sample = SequentialSampler(eval_data)
+                    eval_data = DataLoader(eval_data, sampler=eval_sample, batch_size=args.eval_batch_size,
+                                           num_workers=4, pin_memory=True)
                     dev_dataset['dev_loss'] = eval_data
 
                 eval_ppl = eval_ppl_epoch(args, eval_data, model)
@@ -235,9 +227,8 @@ def main():
                         break
                 logger.info("***** CUDA.empty_cache() *****")
                 torch.cuda.empty_cache()
-                if args.do_eval_bleu:
-                    eval_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'valid')
-
+                if args.do_eval_acc:
+                    eval_data = dev_dataset['dev_loss']
                     result = eval_acc_epoch(args, eval_data, model, 'dev')
                     dev_acc = result
                     if args.data_num == -1:
@@ -261,7 +252,7 @@ def main():
                             logger.info("Save the best acc model into %s", output_model_file)
                     else:
                         not_acc_inc_cnt += 1
-                        logger.info("Bleu does not increase for %d epochs", not_acc_inc_cnt)
+                        logger.info("Acc does not increase for %d epochs", not_acc_inc_cnt)
                         fa.write(
                             "[%d] Best acc (%.2f) does not drop changed for %d epochs, cur acc: %.2f \n" % (
                                 cur_epoch, best_acc, not_acc_inc_cnt, dev_acc))
@@ -288,10 +279,13 @@ def main():
         logger.info("Reload model from {}".format(file))
         state_dict = torch.load(file)
         new_state_dict = OrderedDict()
-        for k, v in state_dict.items():
-            name = 'module.' + k
-            new_state_dict[name] = v
-        model.load_state_dict(new_state_dict)
+        if hasattr(model, 'module'):
+            for k, v in state_dict.items():
+                name = 'module.' + k
+                new_state_dict[name] = v
+            model.load_state_dict(new_state_dict)
+        else:
+            model.load_state_dict(state_dict)
         # model.load_state_dict(torch.load(file),False)
         eval_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'test')
         result = eval_acc_epoch(args, eval_data, model, 'test')

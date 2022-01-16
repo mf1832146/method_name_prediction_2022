@@ -29,7 +29,7 @@ def build_config(args, tokenizer):
         max_rel_pos = int(args.max_rel_pos / 2) + 1
     deberta_config = DebertaConfig(vocab_size=tokenizer.vocab_size,
                                    hidden_size=512,
-                                   num_hidden_layers=6,
+                                   num_hidden_layers=2,
                                    num_attention_heads=8,
                                    intermediate_size=2048,
                                    relative_attention=True,
@@ -90,6 +90,7 @@ class MyDebertaModel(DebertaModel):
                 position_ids=None,
                 rel_pos=None,
                 inputs_embeds=None,
+                inputs_mask=None,
                 output_attentions=None,
                 output_hidden_states=None,
                 return_dict=None,):
@@ -119,7 +120,7 @@ class MyDebertaModel(DebertaModel):
             input_ids=input_ids,
             token_type_ids=token_type_ids,
             position_ids=position_ids,
-            mask=attention_mask,
+            mask=inputs_mask,
             inputs_embeds=inputs_embeds,
         )
 
@@ -211,6 +212,7 @@ class Seq2Seq(nn.Module):
         position_idx = torch.clamp(position_idx, 0)
 
         outputs = self.encoder(inputs_embeds=inputs_embeddings,
+                               inputs_mask=source_mask,
                                attention_mask=attn_mask,
                                position_ids=position_idx,
                                rel_pos=rel_pos)
