@@ -24,7 +24,7 @@ def read_fuc_name_pre_examples_from_db(collection, split_tag, lang, data_num):
 
     examples = []
     results = collection.find(conditions, return_items)
-    for result in tqdm(results[:1000], total=results.count()):
+    for result in tqdm(results, total=results.count()):
         idx = result['code_index']
         ast = pickle.loads(result['ast'])
         dfg = pickle.loads(result['dfg'])
