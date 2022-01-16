@@ -44,7 +44,7 @@ def build_config(args, tokenizer):
 
 
 def build_or_load_gen_model(args):
-    tokenizer = Tokenizer.from_file('./tokenizer/deberta_tokenizer.json')
+    tokenizer = Tokenizer.from_file('../tokenizer/deberta_tokenizer.json')
     tokenizer = PreTrainedTokenizerFast(tokenizer_object=tokenizer,
                                         unk_token='<unk>',
                                         bos_token="<s>",
