@@ -287,8 +287,6 @@ def convert_example_to_func_naming_feature(item):
     target_mask += [0] * padding_length
 
     gold_ids = target_ids
-    if stage == 'test':
-        target_ids = None
 
     return FuncNamingFeature(example_index,
                              source_ids,

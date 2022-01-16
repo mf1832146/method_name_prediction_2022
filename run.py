@@ -59,7 +59,7 @@ def eval_acc_epoch(args, eval_dataloader, model, split_tag):
     total_acc_num = 0
     total_num = 0
 
-    for batch in tqdm(eval_dataloader, total=len(eval_dataloader), desc="Eval mrr for {} set".format(split_tag)):
+    for batch in tqdm(eval_dataloader, total=len(eval_dataloader), desc="Eval acc for {} set".format(split_tag)):
         batch = tuple(t.to(args.device) for t in batch)
         source_ids, source_mask, position_idx, attn_mask, rel_pos, target_ids, target_mask, gold_ids = batch
 
@@ -288,6 +288,9 @@ def main():
             model.load_state_dict(state_dict)
         # model.load_state_dict(torch.load(file),False)
         eval_data = load_and_cache_gen_data_from_db(args, pool, tokenizer, 'test')
+        eval_sample = SequentialSampler(eval_data)
+        eval_data = DataLoader(eval_data, sampler=eval_sample, batch_size=args.eval_batch_size,
+                               num_workers=4, pin_memory=True)
         result = eval_acc_epoch(args, eval_data, model, 'test')
         test_acc = result
         result_str = "[ppl] acc: %.2f\n" % test_acc
