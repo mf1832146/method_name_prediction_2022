@@ -1,4 +1,4 @@
-WORKDIR="/home/group/tz/method_name_prediction_2022/sh"
+WORKDIR="/home/group/tz/method_name_prediction_2022"
 export PYTHONPATH=$WORKDIR
 
 TASK=${1}
