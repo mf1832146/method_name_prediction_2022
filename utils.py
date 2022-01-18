@@ -327,7 +327,6 @@ def convert_example_to_func_naming_feature(item):
     #                         "target_mask": target_mask, "gold_ids": gold_ids})
     example = pickle.dumps(example)
     db[db_name].insert_one({"example_index": example_index, "example": example})
-    logger.info(str(example_index) + " end.")
 
     return example_index
 
