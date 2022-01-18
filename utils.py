@@ -109,13 +109,16 @@ class FuncNamingDataset(Dataset):
     def __init__(self, examples, db_name, args, tokenizer):
         self.examples = examples
         self.args = args
-        self.db = db[db_name]
+        self.db_name = db_name
         self.tokenizer = tokenizer
+        self.db = None
 
     def __len__(self):
         return len(self.examples)
 
     def __getitem__(self, item):
+        if self.db is None:
+            self.db = db[self.db_name]
         result = self.db.find({'example_index': item})[0]
         example = pickle.loads(result['example'])
 
