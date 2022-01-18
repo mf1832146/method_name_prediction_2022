@@ -98,7 +98,7 @@ def main():
         # for DataParallel
         model = torch.nn.DataParallel(model)
     lock = multiprocessing.Lock()
-    pool = multiprocessing.Pool(2, initializer=init_lock, initargs=(lock,))
+    pool = multiprocessing.Pool(args.cpu_num, initializer=init_lock, initargs=(lock,))
     fa = open(os.path.join(args.output_dir, 'summary.log'), 'a+')
     if args.do_train:
         if args.local_rank in [-1, 0] and args.data_num == -1:
