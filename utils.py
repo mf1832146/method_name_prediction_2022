@@ -343,7 +343,7 @@ def convert_example_to_func_naming_feature(item):
     lock.acquire()
     db[db_name].insert_one({"example_index": example_index, "example": example})
     lock.release()
-    logger.info("example_index:  ", example_index, ' end.')
+    logger.info(str(example_index) + " end.")
 
     return example_index
 
