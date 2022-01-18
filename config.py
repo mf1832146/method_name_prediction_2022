@@ -139,7 +139,7 @@ def set_dist(args):
         device = torch.device("cuda", args.local_rank)
         torch.distributed.init_process_group(backend='nccl')
         args.n_gpu = 1
-    cpu_cont = multiprocessing.cpu_count()
+    cpu_cont = 5
     logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, cpu count: %d",
                    args.local_rank, device, args.n_gpu, bool(args.local_rank != -1), cpu_cont)
     args.device = device

@@ -310,7 +310,7 @@ def get_elapse_time(t0):
 
 
 def connect_db():
-    client = MongoClient('172.29.7.221', 27017, username='admin', password='123456')
+    client = MongoClient('127.0.0.1', 27017, username='admin', password='123456')
     db = client.code_search_net
     return db
 
