@@ -303,18 +303,12 @@ def convert_example_to_func_naming_feature(item):
     gold_ids = target_ids
 
     # 保存回数据库
-    func_example = FuncNamingFeature(example_index,
-                                     source_ids,
-                                     position_idx,
-                                     rel_pos,
-                                     source_mask,
-                                     target_ids,
-                                     target_mask,
-                                     gold_ids)
+    print(db_name)
     db[db_name].insert_one({"example_index": example_index, "source_ids": source_ids,
-                       "position_idx": position_idx, "rel_pos": rel_pos,
-                       "source_mask": source_mask, "target_ids": target_ids,
-                       "target_mask": target_mask, "gold_ids": gold_ids})
+                            "position_idx": position_idx, "rel_pos": rel_pos,
+                            "source_mask": source_mask, "target_ids": target_ids,
+                            "target_mask": target_mask, "gold_ids": gold_ids})
+    print('save_ok')
 
     return example_index
 
