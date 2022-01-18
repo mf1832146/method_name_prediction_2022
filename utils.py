@@ -117,21 +117,22 @@ class FuncNamingDataset(Dataset):
 
     def __getitem__(self, item):
         result = self.db.find({'example_index': item})[0]
+        example = pickle.loads(result['example'])
 
         max_source_len = self.args.max_source_len
         rel_pos = np.zeros((max_source_len, max_source_len), dtype=np.long)
-        for k, v in result['rel_pos'].items():
+        for k, v in example.rel_pos.items():
             if k[0] < max_source_len and k[1] < max_source_len:
                 rel_pos[k[0]][k[1]] = v
         attn_mask = rel_pos > 0
-        return (torch.tensor(result['source_ids']),
-                torch.tensor(result['source_mask']),
-                torch.tensor(result['position_idx']),
+        return (torch.tensor(example.source_ids),
+                torch.tensor(example.source_mask),
+                torch.tensor(example.position_idx),
                 torch.tensor(attn_mask),
                 torch.tensor(rel_pos),
-                torch.tensor(result['target_ids']),
-                torch.tensor(result['target_mask']),
-                torch.tensor(result['gold_ids']))
+                torch.tensor(example.target_ids),
+                torch.tensor(example.target_mask),
+                torch.tensor(example.gold_ids))
 
 
 def convert_example_to_func_naming_feature(item):
@@ -306,11 +307,22 @@ def convert_example_to_func_naming_feature(item):
     gold_ids = target_ids
 
     # 保存回数据库
+    example = FuncNamingFeature(
+        example_id=example_index,
+        source_ids=source_ids,
+        position_idx=position_idx,
+        rel_pos=rel_pos,
+        source_mask=source_mask,
+        target_ids=target_ids,
+        target_mask=target_mask,
+        gold_ids=gold_ids
+    )
     print(db_name)
-    db[db_name].insert_one({"example_index": example_index, "source_ids": source_ids,
-                            "position_idx": position_idx, "rel_pos": rel_pos,
-                            "source_mask": source_mask, "target_ids": target_ids,
-                            "target_mask": target_mask, "gold_ids": gold_ids})
+    # db[db_name].insert_one({"example_index": example_index, "source_ids": source_ids,
+    #                         "position_idx": position_idx, "rel_pos": rel_pos,
+    #                         "source_mask": source_mask, "target_ids": target_ids,
+    #                         "target_mask": target_mask, "gold_ids": gold_ids})
+    db[db_name].insert_one({"example_index": example_index, "example": example})
     print('save_ok')
 
     return example_index
