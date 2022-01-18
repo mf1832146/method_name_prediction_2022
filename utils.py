@@ -63,7 +63,10 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
         # collection, split_tag, lang, data_num
         examples = read_fuc_name_pre_examples_from_db(codes, split_tag, args.sub_task, args.data_num)
         tuple_examples = [(example, idx, tokenizer, args, split_tag) for idx, example in enumerate(examples)]
-        features = pool.map(convert_example_to_func_naming_feature, tqdm(tuple_examples, total=len(tuple_examples)))
+        features = []
+        for tuple_example in tqdm(tuple_examples, total=len(tuple_examples)):
+            features.append(convert_example_to_func_naming_feature(tuple_example))
+        # features = pool.map(convert_example_to_func_naming_feature, tqdm(tuple_examples, total=len(tuple_examples)))
         data = FuncNamingDataset(features, args, tokenizer)
         if args.local_rank in [-1, 0]:
             torch.save(data, cache_fn)
@@ -310,7 +313,7 @@ def get_elapse_time(t0):
 
 
 def connect_db():
-    client = MongoClient('127.0.0.1', 27017, username='admin', password='123456')
+    client = MongoClient('172.29.7.221', 27017, username='admin', password='123456')
     db = client.code_search_net
     return db
 
