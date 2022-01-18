@@ -322,7 +322,7 @@ def convert_example_to_func_naming_feature(item):
     #                         "position_idx": position_idx, "rel_pos": rel_pos,
     #                         "source_mask": source_mask, "target_ids": target_ids,
     #                         "target_mask": target_mask, "gold_ids": gold_ids})
-    db[db_name].insert_one({"example_index": example_index, "example": example})
+    db[db_name].insert_one({"example_index": example_index, "example": pickle.dumps(example)})
     print('save_ok')
 
     return example_index
