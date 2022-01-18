@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 from transformers import AdamW, get_linear_schedule_with_warmup
-from utils import get_elapse_time, load_and_cache_gen_data_from_db
+from utils import get_elapse_time, load_and_cache_gen_data_from_db, init_lock
 from collections import OrderedDict
 import numpy as np
 
@@ -24,11 +24,6 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-
-def init_lock(l):
-    global lock
-    lock = l
 
 
 def eval_ppl_epoch(args, eval_dataloader, model):

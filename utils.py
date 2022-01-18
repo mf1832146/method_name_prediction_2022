@@ -21,6 +21,11 @@ def connect_db():
     return client.code_search_net
 
 
+def init_lock(l):
+    global lock
+    lock = l
+
+
 db = connect_db()
 
 
@@ -329,7 +334,6 @@ def convert_example_to_func_naming_feature(item):
     #                         "target_mask": target_mask, "gold_ids": gold_ids})
     example = pickle.dumps(example)
     # 数据库顺序写入
-    global lock
     lock.aquire()
     db[db_name].insert_one({"example_index": example_index, "example": example})
     lock.release()
