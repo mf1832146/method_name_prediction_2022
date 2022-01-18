@@ -74,7 +74,6 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
         # collection, split_tag, lang, data_num
         examples = read_fuc_name_pre_examples_from_db(codes, split_tag, args.sub_task, args.data_num)
         tuple_examples = [(example, idx, tokenizer, args, split_tag, db_name) for idx, example in enumerate(examples)]
-        results = []
         features = []
         for i in tqdm(range(0, len(tuple_examples), 20)):
             results = pool.map(convert_example_to_func_naming_feature, tuple_examples[i:i+20])
