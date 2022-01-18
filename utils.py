@@ -11,8 +11,15 @@ from pymongo import MongoClient
 from _utils import ast2seq, get_ud2pos, build_relative_position, tokenize_with_camel_case
 
 sys.setrecursionlimit(1000000)
-
 logger = logging.getLogger(__name__)
+
+
+def connect_db():
+    client = MongoClient('172.29.7.221', 27017, username='admin', password='123456')
+    return client.code_search_net
+
+
+db = connect_db()
 
 
 # idx, ast, dfg, target, index2code, lang
@@ -52,9 +59,8 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
 
     data_tag = '_all' if args.data_num == -1 else '_%d' % args.data_num
     cache_fn = '{}/{}.pt'.format(args.cache_path, split_tag + data_tag)
-    db = connect_db()
+
     db_name = args.cache_path + '_' + split_tag + data_tag
-    cache_db = db[db_name]
 
     if os.path.exists(cache_fn):
         logger.info("Load cache data from %s", cache_fn)
@@ -65,7 +71,7 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
         codes = connect_db().codes
         # collection, split_tag, lang, data_num
         examples = read_fuc_name_pre_examples_from_db(codes, split_tag, args.sub_task, args.data_num)
-        tuple_examples = [(example, idx, tokenizer, args, split_tag, cache_db) for idx, example in enumerate(examples)]
+        tuple_examples = [(example, idx, tokenizer, args, split_tag, db_name) for idx, example in enumerate(examples)]
         features = pool.map(convert_example_to_func_naming_feature, tqdm(tuple_examples, total=len(tuple_examples)))
         data = FuncNamingDataset(features, db_name, args, tokenizer)
         if args.local_rank in [-1, 0]:
@@ -100,7 +106,7 @@ class FuncNamingDataset(Dataset):
     def __init__(self, examples, db_name, args, tokenizer):
         self.examples = examples
         self.args = args
-        self.db = connect_db()[db_name]
+        self.db = db[db_name]
         self.tokenizer = tokenizer
 
     def __len__(self):
@@ -126,7 +132,7 @@ class FuncNamingDataset(Dataset):
 
 
 def convert_example_to_func_naming_feature(item):
-    example, example_index, tokenizer, args, stage, tmp_db = item
+    example, example_index, tokenizer, args, stage, db_name = item
 
     ast = example.ast
     dfg = example.dfg
@@ -305,7 +311,7 @@ def convert_example_to_func_naming_feature(item):
                                      target_ids,
                                      target_mask,
                                      gold_ids)
-    tmp_db.insert_one({"example_index": example_index, "source_ids": source_ids,
+    db[db_name].insert_one({"example_index": example_index, "source_ids": source_ids,
                        "position_idx": position_idx, "rel_pos": rel_pos,
                        "source_mask": source_mask, "target_ids": target_ids,
                        "target_mask": target_mask, "gold_ids": gold_ids})
@@ -323,11 +329,6 @@ def get_elapse_time(t0):
         minute = int((elapse_time % 3600) // 60)
         return "{}m".format(minute)
 
-
-def connect_db():
-    client = MongoClient('172.29.7.221', 27017, username='admin', password='123456')
-    db = client.code_search_net
-    return db
 
 
 
