@@ -334,9 +334,11 @@ def convert_example_to_func_naming_feature(item):
     #                         "target_mask": target_mask, "gold_ids": gold_ids})
     example = pickle.dumps(example)
     # 数据库顺序写入
+    logger.info("啊啊啊啊要获取锁了")
     lock.acquire()
     db[db_name].insert_one({"example_index": example_index, "example": example})
     lock.release()
+    logger.info("啊啊啊啊锁无了")
 
     return example_index
 
