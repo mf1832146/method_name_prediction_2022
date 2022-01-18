@@ -79,12 +79,15 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
         # collection, split_tag, lang, data_num
         examples = read_fuc_name_pre_examples_from_db(codes, split_tag, args.sub_task, args.data_num)
         tuple_examples = [(example, idx, tokenizer, args, split_tag, db_name) for idx, example in enumerate(examples)]
-        features = []
+        results = []
         for tuple_example in tqdm(tuple_examples, total=len(tuple_examples)):
-            features.append(pool.apply_async(convert_example_to_func_naming_feature, args=(tuple_example,)))
+            results.append(pool.apply_async(convert_example_to_func_naming_feature, args=(tuple_example,)))
         #    features.append(convert_example_to_func_naming_feature(tuple_example))
         # features = pool.map(convert_example_to_func_naming_feature,
         #                     tqdm(tuple_examples, total=len(tuple_examples)))
+        features = []
+        for result in results:
+            features.append(result.get())
         data = FuncNamingDataset(features, db_name, args, tokenizer)
         if args.local_rank in [-1, 0]:
             torch.save(data, cache_fn)
@@ -335,11 +338,9 @@ def convert_example_to_func_naming_feature(item):
     #                         "target_mask": target_mask, "gold_ids": gold_ids})
     example = pickle.dumps(example)
     # 数据库顺序写入
-    logger.info("啊啊啊啊要获取锁了")
     lock.acquire()
     db[db_name].insert_one({"example_index": example_index, "example": example})
     lock.release()
-    logger.info("啊啊啊啊锁无了")
 
     return example_index
 
