@@ -21,11 +21,6 @@ def connect_db():
     return client.code_search_net
 
 
-def init_lock(l):
-    global lock
-    lock = l
-
-
 db = connect_db()
 
 
@@ -38,7 +33,7 @@ def read_fuc_name_pre_examples_from_db(collection, split_tag, lang, data_num):
 
     examples = []
     results = collection.find(conditions, return_items)
-    for result in tqdm(results[:1000], total=results.count()):
+    for result in tqdm(results, total=results.count()):
         idx = result['code_index']
         ast = pickle.loads(result['ast'])
         dfg = pickle.loads(result['dfg'])
@@ -79,17 +74,9 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
         # collection, split_tag, lang, data_num
         examples = read_fuc_name_pre_examples_from_db(codes, split_tag, args.sub_task, args.data_num)
         tuple_examples = [(example, idx, tokenizer, args, split_tag, db_name) for idx, example in enumerate(examples)]
-        results = []
-        for tuple_example in tqdm(tuple_examples, total=len(tuple_examples)):
-            results.append(pool.apply_async(convert_example_to_func_naming_feature, args=(tuple_example,)))
-        #    features.append(convert_example_to_func_naming_feature(tuple_example))
-        # features = pool.map(convert_example_to_func_naming_feature,
-        #                     tqdm(tuple_examples, total=len(tuple_examples)))
-        pool.close()
-        pool.join()
         features = []
-        for result in results:
-            features.append(result.get())
+        for tuple_example in tqdm(tuple_examples, total=len(tuple_examples)):
+            features.append(convert_example_to_func_naming_feature(tuple_example))
         data = FuncNamingDataset(features, db_name, args, tokenizer)
         if args.local_rank in [-1, 0]:
             torch.save(data, cache_fn)
@@ -339,10 +326,7 @@ def convert_example_to_func_naming_feature(item):
     #                         "source_mask": source_mask, "target_ids": target_ids,
     #                         "target_mask": target_mask, "gold_ids": gold_ids})
     example = pickle.dumps(example)
-    # 数据库顺序写入
-    lock.acquire()
     db[db_name].insert_one({"example_index": example_index, "example": example})
-    lock.release()
     logger.info(str(example_index) + " end.")
 
     return example_index

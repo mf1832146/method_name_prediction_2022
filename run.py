@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 from transformers import AdamW, get_linear_schedule_with_warmup
-from utils import get_elapse_time, load_and_cache_gen_data_from_db, init_lock
+from utils import get_elapse_time, load_and_cache_gen_data_from_db
 from collections import OrderedDict
 import numpy as np
 
@@ -98,7 +98,7 @@ def main():
         # for DataParallel
         model = torch.nn.DataParallel(model)
     lock = multiprocessing.Lock()
-    pool = multiprocessing.Pool(args.cpu_cont, initializer=init_lock, initargs=(lock,))
+    pool = multiprocessing.Pool(args.cpu_cont)
     fa = open(os.path.join(args.output_dir, 'summary.log'), 'a+')
     if args.do_train:
         if args.local_rank in [-1, 0] and args.data_num == -1:
