@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
+def init_lock(l):
+    global lock
+    lock = l
+
+
 def eval_ppl_epoch(args, eval_dataloader, model):
     # Start evaluating model
     logger.info(" " + "**** Run ppl evaluation ****")
@@ -97,7 +102,8 @@ def main():
     if args.n_gpu > 1:
         # for DataParallel
         model = torch.nn.DataParallel(model)
-    pool = multiprocessing.Pool(args.cpu_cont)
+    lock = multiprocessing.Lock()
+    pool = multiprocessing.Pool(args.cpu_cont, initializer=init_lock, initargs=(lock,))
     fa = open(os.path.join(args.output_dir, 'summary.log'), 'a+')
     if args.do_train:
         if args.local_rank in [-1, 0] and args.data_num == -1:
