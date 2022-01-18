@@ -64,7 +64,7 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
     data_tag = '_all' if args.data_num == -1 else '_%d' % args.data_num
     cache_fn = '{}/{}.pt'.format(args.cache_path, split_tag + data_tag)
 
-    db_name = 'tmp_' + str(time.time())
+    db_name = 'tmp_' + split_tag + '_' + str(time.time())
 
     if os.path.exists(cache_fn):
         logger.info("Load cache data from %s", cache_fn)
