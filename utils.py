@@ -135,7 +135,7 @@ def convert_example_to_func_naming_feature(item):
         if '.' in func_name:
             func_name = func_name.split('.')[-1]
         if v[1] == func_name:
-            index2code[k] = '<mask>'
+            index2code[k] = (v[0], '<mask>')
 
     ud2pos = get_ud2pos(args.max_rel_pos)
 
