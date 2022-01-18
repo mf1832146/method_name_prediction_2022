@@ -54,7 +54,7 @@ def eval_ppl_epoch(args, eval_dataloader, model):
 
 
 def eval_acc_epoch(args, eval_dataloader, model, split_tag):
-    logger.info("  ***** Running bleu evaluation on {} data*****".format(split_tag))
+    logger.info("  ***** Running acc evaluation on {} data*****".format(split_tag))
     logger.info("  Batch size = %d", args.eval_batch_size)
     model.eval()
     total_acc_num = 0
@@ -77,6 +77,7 @@ def eval_acc_epoch(args, eval_dataloader, model, split_tag):
             acc = torch.sum(top_preds[:, 1:] == gold_ids[:, 1:]).cpu().numpy()
             total_acc_num += acc - pad_num
 
+    print('total acc num', total_acc_num)
     acc = round(total_acc_num / total_num, 5) * 100
     logger.info("***** Eval results ***** Acc = %s", str(acc))
 

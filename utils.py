@@ -1,3 +1,5 @@
+import multiprocessing
+
 from torch.utils.data import Dataset
 import numpy as np
 import logging
@@ -57,6 +59,8 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
     # only_src: control whether to return only source ids for bleu evaluating (dev/test)
     # return: examples (Example object), data (TensorDataset)
 
+    lock = multiprocessing.Lock()
+
     data_tag = '_all' if args.data_num == -1 else '_%d' % args.data_num
     cache_fn = '{}/{}.pt'.format(args.cache_path, split_tag + data_tag)
 
@@ -72,10 +76,11 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
         # collection, split_tag, lang, data_num
         examples = read_fuc_name_pre_examples_from_db(codes, split_tag, args.sub_task, args.data_num)
         tuple_examples = [(example, idx, tokenizer, args, split_tag, db_name) for idx, example in enumerate(examples)]
-        features = []
-        for tuple_example in tqdm(tuple_examples, total=len(tuple_examples)):
-           features.append(convert_example_to_func_naming_feature(tuple_example))
-        # features = pool.map(convert_example_to_func_naming_feature, tqdm(tuple_examples, total=len(tuple_examples)))
+        # features = []
+        # for tuple_example in tqdm(tuple_examples, total=len(tuple_examples)):
+        #    features.append(convert_example_to_func_naming_feature(tuple_example))
+        features = pool.map(convert_example_to_func_naming_feature,
+                            args=(tqdm(tuple_examples, total=len(tuple_examples)), lock))
         data = FuncNamingDataset(features, db_name, args, tokenizer)
         if args.local_rank in [-1, 0]:
             torch.save(data, cache_fn)
@@ -138,7 +143,7 @@ class FuncNamingDataset(Dataset):
                 torch.tensor(example.gold_ids))
 
 
-def convert_example_to_func_naming_feature(item):
+def convert_example_to_func_naming_feature(item, lock):
     example, example_index, tokenizer, args, stage, db_name = item
 
     ast = example.ast
@@ -324,7 +329,11 @@ def convert_example_to_func_naming_feature(item):
     #                         "position_idx": position_idx, "rel_pos": rel_pos,
     #                         "source_mask": source_mask, "target_ids": target_ids,
     #                         "target_mask": target_mask, "gold_ids": gold_ids})
-    db[db_name].insert_one({"example_index": example_index, "example": pickle.dumps(example)})
+    example = pickle.dumps(example)
+    # 数据库顺序写入
+    lock.aquire()
+    db[db_name].insert_one({"example_index": example_index, "example": example})
+    lock.release()
 
     return example_index
 
