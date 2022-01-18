@@ -111,14 +111,12 @@ class FuncNamingDataset(Dataset):
         self.args = args
         self.db_name = db_name
         self.tokenizer = tokenizer
-        self.db = None
+        self.db = connect_db()[self.db_name]
 
     def __len__(self):
         return len(self.examples)
 
     def __getitem__(self, item):
-        if self.db is None:
-            self.db = db[self.db_name]
         result = self.db.find({'example_index': item})[0]
         example = pickle.loads(result['example'])
 
@@ -320,13 +318,11 @@ def convert_example_to_func_naming_feature(item):
         target_mask=target_mask,
         gold_ids=gold_ids
     )
-    print(db_name)
     # db[db_name].insert_one({"example_index": example_index, "source_ids": source_ids,
     #                         "position_idx": position_idx, "rel_pos": rel_pos,
     #                         "source_mask": source_mask, "target_ids": target_ids,
     #                         "target_mask": target_mask, "gold_ids": gold_ids})
     db[db_name].insert_one({"example_index": example_index, "example": pickle.dumps(example)})
-    print('save_ok')
 
     return example_index
 
