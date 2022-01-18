@@ -85,6 +85,8 @@ def load_and_cache_gen_data_from_db(args, pool, tokenizer, split_tag):
         #    features.append(convert_example_to_func_naming_feature(tuple_example))
         # features = pool.map(convert_example_to_func_naming_feature,
         #                     tqdm(tuple_examples, total=len(tuple_examples)))
+        pool.close()
+        pool.join()
         features = []
         for result in results:
             features.append(result.get())
